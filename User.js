@@ -1,1 +1,0 @@
-// Mongoose schema for User
