@@ -138,7 +138,7 @@ contract SafeseedFactory is Ownable {
         return Create2.computeAddress(salt, keccak256(bytecode), address(this));
     }
 
-    // View functions
+// View functions
     function getCustodyForSafe(address safe) external view returns (address) {
         return safeToCustody[safe];
     }
