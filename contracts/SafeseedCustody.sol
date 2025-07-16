@@ -1,3 +1,4 @@
+// contracts/SafeseedCustody.sol
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
@@ -9,7 +10,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /**
  * @title SafeseedCustody
- * @dev Enhanced custody contract designed to integrate with Gnosis Safe
+ * @dev Enhanced custody contract for integration with Gnosis Safe
  */
 contract SafeseedCustody is ReentrancyGuard, Ownable {
     using ECDSA for bytes32;
@@ -64,20 +65,19 @@ contract SafeseedCustody is ReentrancyGuard, Ownable {
         mapping(bytes32 => TimeLockTransaction) pendingTransactions;
     }
 
-    // Constants
+    // State
+    mapping(address => CustodyInfo) private _custodies;
+    mapping(address => RecoveryRequest) private _recoveryRequests;
+    mapping(address => mapping(address => bool)) public authorizedCallers;
+
     uint256 public constant RECOVERY_DELAY = 7 days;
     uint256 public constant MAX_EMERGENCY_CONTACTS = 5;
     uint256 public constant MIN_TIMELOCK = 1 hours;
     uint256 public constant MAX_TIMELOCK = 30 days;
 
-    // State variables
-    mapping(address => CustodyInfo) internal _custodies;
-    mapping(address => RecoveryRequest) public recoveryRequests;
-    mapping(address => mapping(address => bool)) public authorizedCallers;
-
     // Modifiers
     modifier onlyValidCustody(address safe) {
-        require(_custodies[safe].exists, "Custody not found");
+        require(_custodies[safe].exists, "Custody does not exist");
         _;
     }
 
@@ -87,89 +87,92 @@ contract SafeseedCustody is ReentrancyGuard, Ownable {
     }
 
     modifier onlyEmergencyContact(address safe) {
-        require(isEmergencyContact(safe, msg.sender), "Not emergency contact");
+        require(isEmergencyContact(safe, msg.sender), "Not an emergency contact");
         _;
     }
 
     modifier onlyAuthorized(address safe) {
-        require(authorizedCallers[safe][msg.sender] || msg.sender == owner(), "Unauthorized");
+        require(authorizedCallers[safe][msg.sender] || msg.sender == owner(), "Not authorized");
         _;
     }
 
-    // External view getter for public access
-    function custodies(address safe) external view returns (
-        bool exists,
-        bool frozen,
-        uint256 timeLock,
-        uint256 lastActivity,
-        address[] memory contacts
+    // Public Read
+    function custodies(address safe) public view returns (
+        bool exists, bool frozen, uint256 timeLock, uint256 lastActivity, address[] memory emergencyContacts
     ) {
         CustodyInfo storage c = _custodies[safe];
         return (c.exists, c.frozen, c.timeLock, c.lastActivity, c.emergencyContacts);
     }
 
-    // --- Core Functions ---
-
-    function initializeCustody(
-        address safe,
-        uint256 timeLock,
-        address[] calldata emergencyContacts
-    ) external onlyOwner {
+    // Main functions
+    function initializeCustody(address safe, uint256 timeLock, address[] calldata contacts) external onlyOwner {
         require(!_custodies[safe].exists, "Already initialized");
-        require(timeLock >= MIN_TIMELOCK && timeLock <= MAX_TIMELOCK, "Invalid timelock");
-        require(emergencyContacts.length <= MAX_EMERGENCY_CONTACTS, "Too many contacts");
+        require(timeLock >= MIN_TIMELOCK && timeLock <= MAX_TIMELOCK, "Invalid time lock");
+        require(contacts.length <= MAX_EMERGENCY_CONTACTS, "Too many contacts");
 
-        CustodyInfo storage info = _custodies[safe];
-        info.exists = true;
-        info.timeLock = timeLock;
-        info.lastActivity = block.timestamp;
+        _custodies[safe].exists = true;
+        _custodies[safe].timeLock = timeLock;
+        _custodies[safe].lastActivity = block.timestamp;
 
-        for (uint256 i = 0; i < emergencyContacts.length; i++) {
-            info.emergencyContacts.push(emergencyContacts[i]);
+        for (uint256 i = 0; i < contacts.length; i++) {
+            _custodies[safe].emergencyContacts.push(contacts[i]);
         }
 
         emit CustodyCreated(safe, msg.sender, block.timestamp);
     }
 
-    function setSpendingLimit(
-        address safe,
-        address token,
-        uint256 limit,
-        uint256 period
-    ) external onlyAuthorized(safe) onlyValidCustody(safe) {
-        _custodies[safe].spendingLimits[token] = SpendingLimit({
-            limit: limit,
-            spent: 0,
-            resetTime: block.timestamp + period,
-            period: period
-        });
+    function setSpendingLimit(address safe, address token, uint256 limit, uint256 period)
+        external
+        onlyAuthorized(safe)
+        onlyValidCustody(safe)
+    {
+        require(period > 0, "Period must be > 0");
+        SpendingLimit storage s = _custodies[safe].spendingLimits[token];
+        s.limit = limit;
+        s.period = period;
+        s.spent = 0;
+        s.resetTime = block.timestamp + period;
 
         emit SpendingLimitSet(safe, token, limit, period);
     }
 
-    function checkSpendingLimit(
-        address safe,
-        address token,
-        uint256 amount
-    ) external view onlyValidCustody(safe) returns (bool) {
-        SpendingLimit memory limit = _custodies[safe].spendingLimits[token];
-        if (block.timestamp > limit.resetTime) return amount <= limit.limit;
-        return limit.spent + amount <= limit.limit;
+    function checkSpendingLimit(address safe, address token, uint256 amount)
+        external
+        view
+        returns (bool)
+    {
+        SpendingLimit storage s = _custodies[safe].spendingLimits[token];
+
+        if (block.timestamp >= s.resetTime) {
+            return amount <= s.limit;
+        } else {
+            return (s.spent + amount) <= s.limit;
+        }
     }
 
-    function updateSpending(
-        address safe,
-        address token,
-        uint256 amount
-    ) external onlyAuthorized(safe) onlyValidCustody(safe) {
-        SpendingLimit storage limit = _custodies[safe].spendingLimits[token];
+    function updateSpending(address safe, address token, uint256 amount)
+        external
+        onlyAuthorized(safe)
+        onlyValidCustody(safe)
+    {
+        SpendingLimit storage s = _custodies[safe].spendingLimits[token];
 
-        if (block.timestamp > limit.resetTime) {
-            limit.spent = amount;
-            limit.resetTime = block.timestamp + limit.period;
+        if (block.timestamp >= s.resetTime) {
+            s.spent = amount;
+            s.resetTime = block.timestamp + s.period;
         } else {
-            limit.spent += amount;
+            s.spent += amount;
         }
+    }
+
+    function updateTimeLock(address safe, uint256 newDelay)
+        external
+        onlyAuthorized(safe)
+        onlyValidCustody(safe)
+    {
+        require(newDelay >= MIN_TIMELOCK && newDelay <= MAX_TIMELOCK, "Invalid delay");
+        _custodies[safe].timeLock = newDelay;
+        emit TimeLockSet(safe, newDelay);
     }
 
     function proposeTimeLockTransaction(
@@ -178,86 +181,95 @@ contract SafeseedCustody is ReentrancyGuard, Ownable {
         uint256 value,
         bytes calldata data
     ) external onlyAuthorized(safe) onlyValidCustody(safe) returns (bytes32) {
-        uint256 executeTime = block.timestamp + _custodies[safe].timeLock;
+        bytes32 txHash = keccak256(abi.encodePacked(safe, to, value, data, block.timestamp));
+        TimeLockTransaction storage txn = _custodies[safe].pendingTransactions[txHash];
 
-        bytes32 txHash = keccak256(abi.encodePacked(safe, to, value, data, executeTime));
-        _custodies[safe].pendingTransactions[txHash] = TimeLockTransaction({
-            to: to,
-            value: value,
-            data: data,
-            executeTime: executeTime,
-            executed: false,
-            proposer: msg.sender
-        });
+        txn.to = to;
+        txn.value = value;
+        txn.data = data;
+        txn.executeTime = block.timestamp + _custodies[safe].timeLock;
+        txn.executed = false;
+        txn.proposer = msg.sender;
 
-        emit TransactionProposed(safe, txHash, executeTime);
+        emit TransactionProposed(safe, txHash, txn.executeTime);
         return txHash;
     }
 
-    function executeTimeLockTransaction(
-        address safe,
-        bytes32 txHash
-    ) external onlyAuthorized(safe) onlyValidCustody(safe) notFrozen(safe) nonReentrant {
+    function executeTimeLockTransaction(address safe, bytes32 txHash)
+        external
+        nonReentrant
+        onlyAuthorized(safe)
+        onlyValidCustody(safe)
+        notFrozen(safe)
+    {
         TimeLockTransaction storage txn = _custodies[safe].pendingTransactions[txHash];
-        require(!txn.executed, "Already executed");
-        require(block.timestamp >= txn.executeTime, "Time lock not expired");
 
-        txn.executed = true;
+        require(!txn.executed, "Already executed");
+        require(block.timestamp >= txn.executeTime, "Too early");
 
         (bool success, ) = txn.to.call{value: txn.value}(txn.data);
+        txn.executed = true;
+
         emit TransactionExecuted(safe, txHash, success);
     }
 
-    // --- Emergency & Recovery ---
-
-    function emergencyFreeze(address safe) external onlyEmergencyContact(safe) {
+    function emergencyFreeze(address safe)
+        external
+        onlyEmergencyContact(safe)
+        onlyValidCustody(safe)
+    {
         _custodies[safe].frozen = true;
         emit EmergencyFreeze(safe, msg.sender, block.timestamp);
     }
 
-    function emergencyUnfreeze(address safe) external onlyEmergencyContact(safe) {
+    function emergencyUnfreeze(address safe)
+        external
+        onlyEmergencyContact(safe)
+        onlyValidCustody(safe)
+    {
         _custodies[safe].frozen = false;
         emit EmergencyUnfreeze(safe, msg.sender, block.timestamp);
     }
 
-    function addEmergencyContact(address safe, address contact) external onlyAuthorized(safe) onlyValidCustody(safe) {
-        require(_custodies[safe].emergencyContacts.length < MAX_EMERGENCY_CONTACTS, "Max contacts");
+    function addEmergencyContact(address safe, address contact)
+        external
+        onlyAuthorized(safe)
+        onlyValidCustody(safe)
+    {
         _custodies[safe].emergencyContacts.push(contact);
         emit EmergencyContactAdded(safe, contact);
     }
 
-    function removeEmergencyContact(address safe, address contact) external onlyAuthorized(safe) onlyValidCustody(safe) {
-        address[] storage contacts = _custodies[safe].emergencyContacts;
-        for (uint i = 0; i < contacts.length; i++) {
-            if (contacts[i] == contact) {
-                contacts[i] = contacts[contacts.length - 1];
-                contacts.pop();
+    function removeEmergencyContact(address safe, address contact)
+        external
+        onlyAuthorized(safe)
+        onlyValidCustody(safe)
+    {
+        address[] storage list = _custodies[safe].emergencyContacts;
+        for (uint256 i = 0; i < list.length; i++) {
+            if (list[i] == contact) {
+                list[i] = list[list.length - 1];
+                list.pop();
                 emit EmergencyContactRemoved(safe, contact);
                 break;
             }
         }
     }
 
-    function isEmergencyContact(address safe, address contact) public view returns (bool) {
-        address[] memory contacts = _custodies[safe].emergencyContacts;
-        for (uint i = 0; i < contacts.length; i++) {
-            if (contacts[i] == contact) return true;
+    function isEmergencyContact(address safe, address user) public view returns (bool) {
+        address[] storage contacts = _custodies[safe].emergencyContacts;
+        for (uint256 i = 0; i < contacts.length; i++) {
+            if (contacts[i] == user) return true;
         }
         return false;
     }
 
-    function updateTimeLock(address safe, uint256 newDelay) external onlyAuthorized(safe) onlyValidCustody(safe) {
-        require(newDelay >= MIN_TIMELOCK && newDelay <= MAX_TIMELOCK, "Invalid delay");
-        _custodies[safe].timeLock = newDelay;
-        emit TimeLockSet(safe, newDelay);
-    }
-
-    function addAuthorizedCaller(address safe, address caller) external onlyAuthorized(safe) onlyValidCustody(safe) {
+    function addAuthorizedCaller(address safe, address caller)
+        external
+        onlyAuthorized(safe)
+        onlyValidCustody(safe)
+    {
         authorizedCallers[safe][caller] = true;
-    }
-
-    function removeAuthorizedCaller(address safe, address caller) external onlyAuthorized(safe) onlyValidCustody(safe) {
-        authorizedCallers[safe][caller] = false;
     }
 
     // Receive ETH
