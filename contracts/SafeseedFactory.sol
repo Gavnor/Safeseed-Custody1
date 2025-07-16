@@ -39,8 +39,6 @@ contract SafeseedFactory is Ownable {
 
     /**
      * @dev Deploy custody contract using CREATE2
-     * @param salt Salt for CREATE2 deployment
-     * @return custody Address of deployed custody contract
      */
     function deployCustody(bytes32 salt) public returns (address custody) {
         bytes memory bytecode = type(SafeseedCustody).creationCode;
@@ -52,14 +50,11 @@ contract SafeseedFactory is Ownable {
         allCustodyContracts.push(custody);
 
         emit CustodyDeployed(custody, msg.sender, salt);
-
-        return custody; // ✅ ADDED RETURN
+        return custody;
     }
 
     /**
      * @dev Deploy integration contract
-     * @param custody Address of custody contract
-     * @return integration Address of deployed integration contract
      */
     function deployIntegration(address custody) public returns (address integration) {
         require(custody != address(0), "Invalid custody address");
@@ -78,8 +73,7 @@ contract SafeseedFactory is Ownable {
         allIntegrationContracts.push(integration);
 
         emit IntegrationDeployed(integration, custody, msg.sender);
-
-        return integration; // ✅ ADDED RETURN
+        return integration;
     }
 
     /**
@@ -90,7 +84,7 @@ contract SafeseedFactory is Ownable {
     ) public returns (address custody, address integration) {
         custody = deployCustody(config.salt);
         integration = deployIntegration(custody);
-        return (custody, integration); // ✅ ADDED RETURN
+        return (custody, integration);
     }
 
     /**
@@ -138,7 +132,7 @@ contract SafeseedFactory is Ownable {
         return Create2.computeAddress(salt, keccak256(bytecode), address(this));
     }
 
-// View functions
+    // View functions
     function getCustodyForSafe(address safe) external view returns (address) {
         return safeToCustody[safe];
     }
