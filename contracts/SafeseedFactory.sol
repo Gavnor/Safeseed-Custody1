@@ -1,4 +1,3 @@
-// contracts/SafeseedFactory.sol
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
@@ -47,10 +46,8 @@ contract SafeseedFactory is Ownable {
         bytes memory bytecode = type(SafeseedCustody).creationCode;
         custody = Create2.deploy(0, salt, bytecode);
 
-        // Transfer ownership to caller
         SafeseedCustody(custody).transferOwnership(msg.sender);
 
-        // Track deployment
         isDeployedByCustody[custody] = true;
         allCustodyContracts.push(custody);
 
@@ -73,10 +70,8 @@ contract SafeseedFactory is Ownable {
         bytes32 salt = keccak256(abi.encodePacked(custody, msg.sender, block.timestamp));
         integration = Create2.deploy(0, salt, bytecode);
 
-        // Transfer ownership to caller
         SafeseedIntegration(integration).transferOwnership(msg.sender);
 
-        // Track deployment
         isDeployedByIntegration[integration] = true;
         allIntegrationContracts.push(integration);
 
@@ -85,29 +80,23 @@ contract SafeseedFactory is Ownable {
 
     /**
      * @dev Deploy complete Safeseed setup (custody + integration)
-     * @param config Deployment configuration
-     * @return custody Address of deployed custody contract
-     * @return integration Address of deployed integration contract
      */
     function deployComplete(
         DeploymentConfig calldata config
     ) public returns (address custody, address integration) {
         custody = deployCustody(config.salt);
         integration = deployIntegration(custody);
-        return (custody, integration);
     }
 
     /**
      * @dev Setup Safeseed for a specific Safe
-     * @param safe Address of the Safe
-     * @param config Deployment configuration
      */
     function setupSafeseed(
         address safe,
         DeploymentConfig calldata config
     ) external {
         require(safe != address(0), "Invalid Safe address");
-        require(safeToCustody[safe] == address(0), "Already setup for this Safe");
+        require(safeToCustody[safe] == address(0), "Already setup");
 
         (address custody, address integration) = deployComplete(config);
 
@@ -123,22 +112,28 @@ contract SafeseedFactory is Ownable {
         emit SafeseedSetupComplete(safe, custody, integration, msg.sender);
     }
 
-    // Predict and view functions
-
+    /**
+     * @dev Predict custody address
+     */
     function predictCustodyAddress(bytes32 salt) external view returns (address) {
         bytes memory bytecode = type(SafeseedCustody).creationCode;
         return Create2.computeAddress(salt, keccak256(bytecode), address(this));
     }
 
+    /**
+     * @dev Predict integration address
+     */
     function predictIntegrationAddress(address custody) external view returns (address) {
         bytes memory bytecode = abi.encodePacked(
             type(SafeseedIntegration).creationCode,
             abi.encode(custody)
         );
+
         bytes32 salt = keccak256(abi.encodePacked(custody, msg.sender, block.timestamp));
         return Create2.computeAddress(salt, keccak256(bytecode), address(this));
     }
 
+    // View functions
     function getCustodyForSafe(address safe) external view returns (address) {
         return safeToCustody[safe];
     }
