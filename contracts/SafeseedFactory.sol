@@ -52,6 +52,8 @@ contract SafeseedFactory is Ownable {
         allCustodyContracts.push(custody);
 
         emit CustodyDeployed(custody, msg.sender, salt);
+
+        return custody; // ✅ ADDED RETURN
     }
 
     /**
@@ -76,6 +78,8 @@ contract SafeseedFactory is Ownable {
         allIntegrationContracts.push(integration);
 
         emit IntegrationDeployed(integration, custody, msg.sender);
+
+        return integration; // ✅ ADDED RETURN
     }
 
     /**
@@ -86,6 +90,7 @@ contract SafeseedFactory is Ownable {
     ) public returns (address custody, address integration) {
         custody = deployCustody(config.salt);
         integration = deployIntegration(custody);
+        return (custody, integration); // ✅ ADDED RETURN
     }
 
     /**
