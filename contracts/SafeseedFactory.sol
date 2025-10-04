@@ -44,7 +44,7 @@ contract SafeseedFactory is Ownable {
         bytes memory bytecode = type(SafeseedCustody).creationCode;
         custody = Create2.deploy(0, salt, bytecode);
 
-        SafeseedCustody(custody).transferOwnership(msg.sender);
+        SafeseedCustody(payable(custody)).transferOwnership(msg.sender);
 
         isDeployedByCustody[custody] = true;
         allCustodyContracts.push(custody);

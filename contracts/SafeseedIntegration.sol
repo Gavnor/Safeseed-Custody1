@@ -20,6 +20,8 @@ interface IGnosisSafe {
 }
 
 contract SafeseedIntegration is ReentrancyGuard, Ownable {
+    event DebugRegisterSafe(address safe, uint256 timeLock, address[] emergencyContacts);
+    event DebugCustodyAddress(address custody);
     using SafeERC20 for IERC20;
 
     SafeseedCustody public immutable custody;
@@ -31,8 +33,9 @@ contract SafeseedIntegration is ReentrancyGuard, Ownable {
     event ModuleDisabled(address indexed safe);
 
     constructor(address _custody) {
+        emit DebugCustodyAddress(_custody);
         require(_custody != address(0), "Invalid custody");
-        custody = SafeseedCustody(_custody);
+        custody = SafeseedCustody(payable(_custody));
     }
 
     function registerSafe(
@@ -40,14 +43,15 @@ contract SafeseedIntegration is ReentrancyGuard, Ownable {
         uint256 timeLock,
         address[] calldata emergencyContacts
     ) external {
-        require(!registeredSafes[safe], "Already registered");
-        require(IGnosisSafe(safe).isOwner(msg.sender), "Not a Safe owner");
+    emit DebugRegisterSafe(safe, timeLock, emergencyContacts);
+    require(!registeredSafes[safe], "Already registered");
+    require(IGnosisSafe(safe).isOwner(msg.sender), "Not a Safe owner");
 
-        custody.initializeCustody(safe, timeLock, emergencyContacts);
-        custody.addAuthorizedCaller(safe, address(this));
-        registeredSafes[safe] = true;
+    custody.initializeCustody(safe, timeLock, emergencyContacts);
+    custody.addAuthorizedCaller(safe, address(this));
+    registeredSafes[safe] = true;
 
-        emit SafeRegistered(safe, msg.sender);
+    emit SafeRegistered(safe, msg.sender);
     }
 
     function setSpendingLimit(
@@ -100,23 +104,28 @@ contract SafeseedIntegration is ReentrancyGuard, Ownable {
     }
 
     // Emergency functions
+
     function emergencyFreeze(address safe) external {
         require(registeredSafes[safe], "Not registered");
+        require(custody.isEmergencyContact(safe, msg.sender), "Not an emergency contact");
         custody.emergencyFreeze(safe);
     }
 
     function emergencyUnfreeze(address safe) external {
         require(registeredSafes[safe], "Not registered");
+        require(custody.isEmergencyContact(safe, msg.sender), "Not an emergency contact");
         custody.emergencyUnfreeze(safe);
     }
 
     function initiateRecovery(address safe, address newOwner) external {
         require(registeredSafes[safe], "Not registered");
+        require(custody.isEmergencyContact(safe, msg.sender), "Not an emergency contact");
         custody.initiateRecovery(safe, newOwner);
     }
 
     function approveRecovery(address safe) external {
         require(registeredSafes[safe], "Not registered");
+        require(custody.isEmergencyContact(safe, msg.sender), "Not an emergency contact");
         custody.approveRecovery(safe);
     }
 

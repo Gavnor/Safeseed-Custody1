@@ -13,6 +13,8 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
  * @dev Enhanced custody contract for integration with Gnosis Safe
  */
 contract SafeseedCustody is ReentrancyGuard, Ownable {
+    event DebugLog(string message);
+
     using ECDSA for bytes32;
     using SafeERC20 for IERC20;
 
@@ -30,6 +32,25 @@ contract SafeseedCustody is ReentrancyGuard, Ownable {
     event EmergencyContactRemoved(address indexed safe, address indexed contact);
 
     // Structs
+
+    // Helper to convert address to string (for debug)
+    function toAsciiString(address x) internal pure returns (string memory) {
+        bytes memory s = new bytes(42);
+        s[0] = '0';
+        s[1] = 'x';
+        for (uint i = 0; i < 20; i++) {
+            bytes1 b = bytes1(uint8(uint(uint160(x)) / (2**(8*(19 - i)))));
+            uint8 hi = uint8(b) / 16;
+            uint8 lo = uint8(b) - 16 * hi;
+            s[2*i + 2] = char(hi);
+            s[2*i + 3] = char(lo);
+        }
+        return string(s);
+    }
+    function char(uint8 b) internal pure returns (bytes1 c) {
+        if (b < 10) return bytes1(b + 0x30);
+        else return bytes1(b + 0x57);
+    }
     struct SpendingLimit {
         uint256 limit;
         uint256 spent;
@@ -87,8 +108,19 @@ contract SafeseedCustody is ReentrancyGuard, Ownable {
     }
 
     modifier onlyEmergencyContact(address safe) {
-        require(isEmergencyContact(safe, msg.sender), "Not an emergency contact");
+        bool isContact = isEmergencyContact(safe, msg.sender);
+        address[] storage contacts = _custodies[safe].emergencyContacts;
+        emit DebugLog(string(abi.encodePacked(
+            "[DEBUG] onlyEmergencyContact: msg.sender=", toAsciiString(msg.sender),
+            ", contacts=", contacts.length > 0 ? toAsciiString(contacts[0]) : "none",
+            contacts.length > 1 ? string(abi.encodePacked(", ", toAsciiString(contacts[1]))) : "",
+            contacts.length > 2 ? string(abi.encodePacked(", ", toAsciiString(contacts[2]))) : "",
+            contacts.length > 3 ? string(abi.encodePacked(", ", toAsciiString(contacts[3]))) : "",
+            contacts.length > 4 ? string(abi.encodePacked(", ", toAsciiString(contacts[4]))) : ""
+        )));
+        require(isContact, "Not an emergency contact");
         _;
+
     }
 
     modifier onlyAuthorized(address safe) {
@@ -264,12 +296,66 @@ contract SafeseedCustody is ReentrancyGuard, Ownable {
         return false;
     }
 
+
     function addAuthorizedCaller(address safe, address caller)
         external
         onlyAuthorized(safe)
         onlyValidCustody(safe)
     {
         authorizedCallers[safe][caller] = true;
+    }
+
+    // --- Recovery Functions ---
+    function initiateRecovery(address safe, address newOwner)
+        external
+        onlyEmergencyContact(safe)
+        onlyValidCustody(safe)
+    {
+        RecoveryRequest storage req = _recoveryRequests[safe];
+        require(!req.executed, "Recovery already executed");
+        req.newOwner = newOwner;
+        req.initiatedAt = block.timestamp;
+        req.executionTime = block.timestamp + RECOVERY_DELAY;
+        req.executed = false;
+        req.approvalCount = 0;
+        // Reset approvals
+        address[] storage contacts = _custodies[safe].emergencyContacts;
+        for (uint256 i = 0; i < contacts.length; i++) {
+            req.approvals[contacts[i]] = false;
+        }
+        emit RecoveryInitiated(safe, msg.sender, block.timestamp);
+    }
+
+    function approveRecovery(address safe)
+        external
+        onlyEmergencyContact(safe)
+        onlyValidCustody(safe)
+    {
+        RecoveryRequest storage req = _recoveryRequests[safe];
+        require(!req.executed, "Recovery already executed");
+        require(req.initiatedAt > 0, "No recovery initiated");
+        require(!req.approvals[msg.sender], "Already approved");
+        req.approvals[msg.sender] = true;
+        req.approvalCount += 1;
+    }
+
+    function executeRecovery(address safe)
+        external
+        onlyValidCustody(safe)
+    {
+        RecoveryRequest storage req = _recoveryRequests[safe];
+        require(!req.executed, "Recovery already executed");
+        require(req.initiatedAt > 0, "No recovery initiated");
+        require(block.timestamp >= req.executionTime, "Recovery delay not passed");
+        // Require majority approval
+        address[] storage contacts = _custodies[safe].emergencyContacts;
+        require(contacts.length > 0, "No emergency contacts");
+        require(req.approvalCount > contacts.length / 2, "Not enough approvals");
+        req.executed = true;
+        // Transfer ownership (assumes Safe is Ownable)
+        (bool success, ) = safe.call(abi.encodeWithSignature("transferOwnership(address)", req.newOwner));
+        require(success, "Ownership transfer failed");
+        emit RecoveryExecuted(safe, msg.sender, block.timestamp);
     }
 
     // Receive ETH

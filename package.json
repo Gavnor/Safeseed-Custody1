@@ -34,17 +34,24 @@
   "author": "Safeseed Team",
   "license": "MIT",
   "devDependencies": {
-    "@types/node": "^20.0.0",
+    "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "@openzeppelin/contracts": "^4.9.5",
+    "@typechain/ethers-v6": "^0.5.1",
+    "@typechain/hardhat": "^9.1.0",
+    "@types/node": "^20.19.17",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "concurrently": "^8.2.0",
     "eslint": "^8.45.0",
     "eslint-config-prettier": "^8.8.0",
     "eslint-plugin-prettier": "^5.0.0",
+    "hardhat": "^2.26.0",
     "husky": "^8.0.3",
     "lint-staged": "^13.2.0",
     "prettier": "^3.0.0",
-    "typescript": "^5.1.0"
+    "ts-node": "^10.9.2",
+    "typechain": "^8.3.2",
+    "typescript": "^5.9.2"
   },
   "workspaces": [
     "frontend",
@@ -71,5 +78,8 @@
   "bugs": {
     "url": "https://github.com/Gavnor/Safeseed-Custody/issues"
   },
-  "homepage": "https://github.com/Gavnor/Safeseed-Custody#readme"
+  "homepage": "https://github.com/Gavnor/Safeseed-Custody#readme",
+  "dependencies": {
+    "dotenv": "^17.2.2"
+  }
 }
