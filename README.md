@@ -173,7 +173,7 @@ This project is under active development and has not been audited. We're working
 3. Bug bounty program
 4. Formal verification
 
-**Found a vulnerability?** Please email security@[your-domain] or open a private security advisory.
+**Found a vulnerability?** Please email sammyanagavah@gmail.com or open a private security advisory.
 
 ---
 
@@ -213,7 +213,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - **Discussions:** [GitHub Discussions](https://github.com/Gavnor/Safeseed-Custody1/discussions)
 - **Issues:** [Bug Reports & Feature Requests](https://github.com/Gavnor/Safeseed-Custody1/issues)
-- **Twitter:** [@YourHandle](#) (coming soon)
+- **Twitter:** [@anagavah]
 
 ---
 
